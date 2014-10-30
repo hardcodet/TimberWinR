@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Net;
 using System.Net.Sockets;
+using MaxMind.Db;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
 
@@ -92,36 +94,26 @@ namespace TimberWinR.Inputs
         private void HandleNewClient(object client)
         {
             var tcpClient = (TcpClient)client;
-            NetworkStream clientStream = null;
 
             try
             {
-                clientStream = tcpClient.GetStream();
-                var stream = new StreamReader(clientStream);
-                string line;
-                while ((line = stream.ReadLine()) != null)
+                if (CancelToken.IsCancellationRequested) return;
+
+                NetworkStream clientStream = tcpClient.GetStream();
+                using(var stream = new StreamReader(clientStream))
                 {
-                    try
+                    using (var reader = new JsonTextReader(stream))
                     {
-                        JObject json = JObject.Parse(line);
+                        //assume the stream provides a single JSON object
+                        JObject json = JObject.Load(reader);
                         ProcessJson(json);
-                        _receivedMessages++;
                     }
-                    catch (Exception ex)
-                    {
-                        LogManager.GetCurrentClassLogger().Error(ex);
-                    }
-                    if (CancelToken.IsCancellationRequested)
-                        break;
                 }
             }
             catch (Exception ex)
             {
                 LogManager.GetCurrentClassLogger().Error(ex);
             }
-
-            if (clientStream != null)
-                clientStream.Close();
 
             tcpClient.Close();
             Finished();
